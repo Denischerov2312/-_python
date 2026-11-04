@@ -1,0 +1,40 @@
+[project]
+name = "password-manager"
+version = "0.1.0"
+description = "Менеджер паролей в терминале (лабораторная работа 1, тема Б1)."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "cryptography>=42.0.0", # шифрование паролей (Fernet)
+]
+
+# Зависимости только для разработки: тесты, линтер, проверка типов.
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.5.0",
+    "mypy>=1.10.0",
+]
+
+[tool.uv]
+package = false # это программа, а не библиотека: ставить её как пакет не нужно
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+# В тестах можно assert (S101) и пароли прямо в коде (S105, S106).
+"tests/*" = ["S101", "S105", "S106"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["passman", "tests", "password_manager.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

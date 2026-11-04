@@ -1,0 +1,9 @@
+# Файл с паролями — никогда не коммитим
+vault.json
+
+# Виртуальное окружение и кэши
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
