@@ -15,8 +15,7 @@
 ```
 password_manager.py      # точка входа: python password_manager.py ...
 passman/
-    security.py          # соль, хэш, ключ, шифрование, генератор паролей
-    manager.py           # класс PasswordManager (вся логика + JSON-файл)
+    manager.py           # соль, хэш, шифрование, генератор + класс PasswordManager
     cli.py               # аргументы командной строки и меню
 tests/                   # тесты pytest
 .github/workflows/ci.yml # GitHub Actions: ruff, mypy, pytest на каждый push
@@ -56,7 +55,6 @@ uv run python password_manager.py --generate   # сгенерировать па
 | `list`             | показать названия записей (без паролей)             |
 | `get <название>`   | показать логин и пароль (спросит мастер-пароль)     |
 | `delete <название>`| удалить запись                                      |
-| `help`             | список команд                                       |
 | `exit`             | выход                                               |
 
 Запускайте в обычном терминале (cmd, PowerShell, терминал VS Code). В консоли «Run»

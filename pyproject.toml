@@ -25,6 +25,8 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "S"]
+# B904 требует «raise ... from ...» внутри except. В проекте этот синтаксис не используем.
+ignore = ["B904"]
 
 [tool.ruff.lint.per-file-ignores]
 # В тестах можно assert (S101) и пароли прямо в коде (S105, S106).

@@ -1,13 +1,94 @@
-"""PasswordManager class: keeps entries in a JSON file, passwords are encrypted."""
+"""Password manager logic: hashing, encryption, password generator and PasswordManager."""
 
+import base64
+import hashlib
 import json
 import os
+import secrets
+import string
 
-from cryptography.fernet import InvalidToken
+from cryptography.fernet import Fernet
 
-from passman import security
+ITERATIONS = 200_000
 
-# Минимальная длина мастер-пароля.
+SPECIAL_CHARS = "!@#$%^&*()-_=+?"
+
+
+def make_salt() -> str:
+    """Return a new random salt (16 bytes) as a hex string."""
+    return os.urandom(16).hex()
+
+
+def _pbkdf2(password: str, salt: str) -> bytes:
+    """Run PBKDF2-SHA256 for the password and the salt, return 32 raw bytes."""
+    return hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), ITERATIONS)
+
+
+def hash_password(password: str, salt: str) -> str:
+    """Return the hash of the password as a hex string."""
+    return _pbkdf2(password, salt).hex()
+
+
+def check_password(password: str, salt: str, expected_hash: str) -> bool:
+    """Check that the password gives the same hash as the saved one."""
+    new_hash = hash_password(password, salt)
+
+    return new_hash == expected_hash
+
+
+def make_key(password: str, salt: str) -> bytes:
+    """Make an encryption key for Fernet from the master password and a salt."""
+    return base64.urlsafe_b64encode(_pbkdf2(password, salt))
+
+
+def encrypt(text: str, key: bytes) -> str:
+    """Encrypt the text with the key and return the result as a string."""
+    token = Fernet(key).encrypt(text.encode())
+    return token.decode()
+
+
+def decrypt(token: str, key: bytes) -> str:
+    """Decrypt the string made by encrypt(). Raises InvalidToken if the key is wrong."""
+    text = Fernet(key).decrypt(token.encode())
+    return text.decode()
+
+
+def is_strong(password: str) -> bool:
+    """Return True if the password has a lowercase, uppercase, digit and special char."""
+    has_lower = False
+    has_upper = False
+    has_digit = False
+    has_special = False
+
+    for char in password:
+        if char.islower():
+            has_lower = True
+        elif char.isupper():
+            has_upper = True
+        elif char.isdigit():
+            has_digit = True
+        elif char in SPECIAL_CHARS:
+            has_special = True
+
+    return has_lower and has_upper and has_digit and has_special
+
+
+def generate_password(length: int = 16) -> str:
+    """Generate a random strong password of the given length."""
+
+    if length < 4:
+        raise ValueError("Длина пароля должна быть не меньше 4 символов.")
+
+    alphabet = string.ascii_letters + string.digits + SPECIAL_CHARS
+
+    while True:
+        password = ""
+        for _ in range(length):
+            password += secrets.choice(alphabet)
+        if is_strong(password):
+            return password
+
+
 MIN_MASTER_LENGTH = 6
 
 
@@ -29,13 +110,17 @@ class PasswordManager:
 
     def __init__(self, path: str = "vault.json") -> None:
         """Create the manager and load the file if it already exists."""
+
         self.path = path
+
         self.master_salt = ""
         self.master_hash = ""
         self.key_salt = ""
+
         self.entries: dict[str, dict[str, str]] = {}
-        # Ключ шифрования. Он есть только в памяти и только после unlock().
+
         self.key: bytes | None = None
+
         if os.path.exists(self.path):
             self._load()
 
@@ -49,67 +134,78 @@ class PasswordManager:
         If the vault already exists, it can be overwritten only with the current
         master password (old_password). All old entries are deleted in this case.
         """
+
         if self.is_initialized():
             if old_password is None or not self.unlock(old_password):
                 raise VaultError(
                     "Хранилище уже создано. Перезаписать его можно только с текущим мастер-паролем."
                 )
+
         if len(password) < MIN_MASTER_LENGTH:
             raise VaultError(f"Мастер-пароль должен быть не короче {MIN_MASTER_LENGTH} символов.")
 
-        # Две РАЗНЫЕ соли: одна для хэша, другая для ключа.
-        # Если соль была бы одна, ключ совпал бы с хэшем, а хэш лежит в файле открыто.
-        self.master_salt = security.make_salt()
-        self.master_hash = security.hash_password(password, self.master_salt)
-        self.key_salt = security.make_salt()
+        self.master_salt = make_salt()
+        self.master_hash = hash_password(password, self.master_salt)
+
+        self.key_salt = make_salt()
+
         self.entries = {}
-        self.key = security.make_key(password, self.key_salt)
+        self.key = make_key(password, self.key_salt)
         self._persist()
 
     def unlock(self, password: str) -> bool:
         """Check the master password. If it is correct, make the key and return True."""
         if not self.is_initialized():
             return False
-        if not security.check_password(password, self.master_salt, self.master_hash):
+
+        if not check_password(password, self.master_salt, self.master_hash):
             return False
-        self.key = security.make_key(password, self.key_salt)
+
+        self.key = make_key(password, self.key_salt)
         return True
 
     def add_entry(self, name: str, login: str, pwd: str) -> None:
         """Add a new entry. The password is saved encrypted."""
-        key = self._get_key()
+        self._require_unlocked()
+
         if name == "":
             raise VaultError("Название записи не может быть пустым.")
         if name in self.entries:
             raise VaultError(f"Запись '{name}' уже существует.")
-        self.entries[name] = {"login": login, "password": security.encrypt(pwd, key)}
+
+        self.entries[name] = {"login": login, "password": encrypt(pwd, self._get_key())}
+
         self._persist()
 
     def list_entries(self) -> list[str]:
         """Return names of all entries (without passwords), sorted by name."""
-        self._get_key()
-        # sorted(словарь) возвращает отсортированный список его ключей.
+        self._require_unlocked()
+
         return sorted(self.entries)
 
     def get_entry(self, name: str) -> tuple[str, str]:
         """Return (login, password) of the entry. The password is decrypted."""
-        key = self._get_key()
+        self._require_unlocked()
+
         if name not in self.entries:
             raise VaultError(f"Записи '{name}' нет.")
+
         entry = self.entries[name]
-        try:
-            pwd = security.decrypt(entry["password"], key)
-        except InvalidToken:
-            raise VaultError("Не удалось расшифровать пароль: файл повреждён.") from None
+        pwd = decrypt(entry["password"], self._get_key())
         return entry["login"], pwd
 
     def delete_entry(self, name: str) -> None:
         """Delete the entry by its name."""
-        self._get_key()
+        self._require_unlocked()
         if name not in self.entries:
             raise VaultError(f"Записи '{name}' нет.")
         del self.entries[name]
         self._persist()
+
+    def _require_unlocked(self) -> None:
+        """Raise an error if the vault is locked (master password not entered)."""
+        if self.key is None:
+            raise VaultError("Хранилище закрыто: сначала введите мастер-пароль.")
 
     def _get_key(self) -> bytes:
         """Return the key or raise an error if the vault is locked."""
@@ -133,9 +229,11 @@ class PasswordManager:
         try:
             with open(self.path, encoding="utf-8") as file:
                 data = json.load(file)
+
             self.master_salt = data["master_salt"]
             self.master_hash = data["master_hash"]
             self.key_salt = data["key_salt"]
             self.entries = data["entries"]
-        except (json.JSONDecodeError, KeyError, TypeError):
-            raise VaultError(f"Файл {self.path} повреждён или имеет неверный формат.") from None
+
+        except Exception:
+            raise VaultError(f"Файл {self.path} повреждён или имеет неверный формат.")
