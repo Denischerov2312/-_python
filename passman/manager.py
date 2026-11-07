@@ -33,7 +33,7 @@ def check_password(password: str, salt: str, expected_hash: str) -> bool:
     """Check that the password gives the same hash as the saved one."""
     new_hash = hash_password(password, salt)
 
-    return new_hash == expected_hash
+    return secrets.compare_digest(new_hash, expected_hash)
 
 
 def make_key(password: str, salt: str) -> bytes:
