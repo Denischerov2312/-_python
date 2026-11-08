@@ -31,6 +31,9 @@ def command_init(manager: PasswordManager) -> None:
     if manager.is_initialized():
         print("Хранилище уже существует. При перезаписи все записи будут удалены!")
         old_password = getpass.getpass("Текущий мастер-пароль: ")
+        if not manager.unlock(old_password):
+            print("Неверный текущий мастер-пароль.")
+            return
 
     password = getpass.getpass("Новый мастер-пароль: ")
     repeat = getpass.getpass("Повторите мастер-пароль: ")
@@ -173,11 +176,11 @@ def main(argv: list[str] | None = None) -> int:
         else:
             command_unlock(manager)
 
+    except (KeyboardInterrupt, EOFError):
+        print("\nВыход.")
+
     except Exception as error:
         print(f"Ошибка: {error}")
         return 1
-
-    except (KeyboardInterrupt, EOFError):
-        print("\nВыход.")
 
     return 0
